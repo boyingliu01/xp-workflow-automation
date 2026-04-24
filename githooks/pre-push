@@ -22,11 +22,40 @@ if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
   exit 0
 fi
 
-# Documentation-only project check
-CODE_FILES=$(find . -type f \( -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.tsx" -o -name "*.java" -o -name "*.go" -o -name "*.rs" -o -name "*.cpp" -o -name "*.c" -o -name "*.swift" -o -name "*.kt" \) -not -path "./.git/*" 2>/dev/null | wc -l)
+# Get files being pushed in this push operation
+# pre-push receives stdin with ref information
+PUSHED_FILES=""
+while read local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    # New branch - compare against empty tree
+    PUSHED_FILES=$(git diff-tree -r --name-only HEAD)
+  else
+    # Existing branch - compare against what we're pushing from
+    PUSHED_FILES=$(git diff-tree -r --name-only "$remote_sha" "$local_sha")
+  fi
+done
 
-if [ "$CODE_FILES" -eq 0 ]; then
-  echo "📚 Documentation-only project. Skipping..."
+if [ -z "$PUSHED_FILES" ]; then
+  echo "📚 No files changed in push. Skipping walkthrough."
+  exit 0
+fi
+
+# Determine if pushed files contain ONLY documentation/non-source files
+DOC_ONLY=true
+SOURCE_EXTENSIONS="\.py$|\.js$|\.ts$|\.tsx$|\.java$|\.go$|\.rs$|\.cpp$|\.c$|\.swift$|\.kt$|\.sh$|\.dart$|\.m$|\.mm$|\.h$|\.hpp$"
+
+for file in $PUSHED_FILES; do
+  if echo "$file" | grep -qE "$SOURCE_EXTENSIONS"; then
+    DOC_ONLY=false
+    break
+  fi
+done
+
+# Documentation-only changes (no source code) → skip walkthrough
+if [ "$DOC_ONLY" = "true" ]; then
+  echo "📚 Documentation-only push (no source code files)."
+  echo "   Files: $(echo "$PUSHED_FILES" | tr '\n' ', ' | sed 's/,$//')"
+  echo "   ✅ No code review required. Proceeding with push..."
   exit 0
 fi
 
